@@ -1,0 +1,20 @@
+BEGIN
+
+	-- Update RMS tblroom
+	UPDATE tblroom
+	SET room_status_id=current_status, 
+	from_room_status_id=previous_status,
+	updated_at=NOW()
+	WHERE id=roomid;
+	
+	-- Increment Checkout Count				  
+	IF current_status='31' THEN
+	
+		UPDATE tblroom
+		SET checkout_count=checkout_count + 1,
+		last_check_in=NOW() 
+		WHERE id=roomid;
+		
+	END IF;
+
+END

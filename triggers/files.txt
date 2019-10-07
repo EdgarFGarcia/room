@@ -1,0 +1,310 @@
+DELIMITER $$
+CREATE PROCEDURE AutopilotLogs(IN roomid VARCHAR(50), IN previous_status VARCHAR(50), IN previous_datetime TEXT, IN current_status VARCHAR(50), IN userinfo VARCHAR(50))
+BEGIN
+
+	-- Variables
+	DECLARE logcount INT;
+	DECLARE logsid INT;
+	DECLARE next_auto_increment INT;
+	DECLARE convertdate DATETIME;
+	
+	-- Get Count
+	SET logcount = (SELECT COUNT(*) FROM rms_logs WHERE room_id=roomid AND e_status IS NULL ORDER BY id DESC);
+	
+	-- Get Log ID
+	SET logsid = (SELECT id 
+					  FROM rms_logs 
+					  WHERE room_id=roomid AND e_status IS NULL
+					  ORDER BY id DESC 
+					  LIMIT 1);
+					  
+	SET convertdate = (SELECT CONVERT(previous_datetime, DATETIME));
+	
+	-- If Log Count 0 Insert Data Logs, Else Update Data Logs				  
+	IF logcount = 0 THEN
+	
+		INSERT INTO rms_logs 
+		(room_id,
+		p_status,
+		p_dateTime,
+		s_status,
+		s_dateTime,
+		created_at,
+		s_emp_id,
+		s_from
+		)
+		VALUES
+		(roomid,
+		previous_status,
+		convertdate,
+		current_status,
+		NOW(),
+		NOW(),
+		userinfo,
+		'Autopilot'
+		);
+		
+		SET next_auto_increment = LAST_INSERT_ID();
+		
+	ELSE
+	
+		UPDATE rms_logs 
+		SET e_status=current_status, 
+		e_dateTime=NOW(), 
+		updated_at=NOW(),
+		e_emp_id=userinfo,
+		e_from='POS'
+		WHERE id=logsid;
+		
+		SET next_auto_increment = 0;
+		
+	END IF;
+	-- End Inser/Update Data Logs
+	
+	IF next_auto_increment!=0 THEN
+								 
+			
+		INSERT INTO tbl_room_buddies 
+		(rms_logs_id, emp_id, room_no, `from`, work_id) 
+		VALUES 
+		(next_auto_increment, userinfo, (SELECT room_no FROM tblroom WHERE id=roomid), 'Autopilot', current_status);
+				
+	
+	END IF;
+
+END $$
+DELIMITER ;
+
+=========================================================================================================================
+
+DELIMITER $$
+CREATE PROCEDURE POSChangeStatus(IN roomid VARCHAR(50), IN previous_status VARCHAR(50), IN current_status VARCHAR(50))
+BEGIN
+
+	-- Update RMS tblroom
+	UPDATE tblroom
+	SET room_status_id=current_status, 
+	from_room_status_id=previous_status
+	WHERE id=roomid;
+	
+	-- Increment Checkout Count				  
+	IF current_status='31' THEN
+	
+		UPDATE tblroom
+		SET checkout_count=checkout_count + 1,
+		preventive_checkout_count=preventive_checkout_count + 1,
+		belo_count=belo_count + 1,
+		last_check_in=NOW() 
+		WHERE id=roomid;
+		
+	END IF;
+
+	-- Update is_pest		  
+	IF current_status='66' THEN
+	
+		UPDATE tblroom
+		SET is_pest=1
+		WHERE id=roomid;
+		
+	END IF;
+
+	-- Update Preventive Maintenance Aircon
+	IF current_status='24' THEN
+	
+		UPDATE tblroom
+		SET preventive_checkout_count=0
+		WHERE id=roomid;
+		
+	END IF;
+
+	-- Update Belo
+	IF current_status='69' THEN
+	
+		UPDATE tblroom
+		SET belo_count=0
+		WHERE id=roomid;
+		
+	END IF;
+
+END $$
+DELIMITER ;
+
+==========================================================================================================================
+
+DELIMITER $$
+CREATE PROCEDURE RMSLogs(IN roomid VARCHAR(50), IN previous_status VARCHAR(50), IN previous_datetime TEXT, IN current_status VARCHAR(50))
+BEGIN
+
+	-- Variables
+	DECLARE logcount INT;
+	DECLARE logsid INT;
+	DECLARE next_auto_increment INT;
+	DECLARE convertdate DATETIME;
+	DECLARE employee_id VARCHAR(50);
+	DECLARE special_logs_id INT;
+	
+	-- Get Employee ID
+	SET employee_id = (SELECT VCAT_Emp
+						FROM vc_audit_trail WHERE VCAT_Room=(SELECT room_no FROM tblroom WHERE id=roomid)
+						ORDER BY VCAT_ID DESC LIMIT 1);
+
+	-- Get Count
+	SET logcount = (SELECT COUNT(*) FROM rms_logs WHERE room_id=roomid AND e_status IS NULL ORDER BY id DESC);
+	
+	-- Get Log ID
+	SET logsid = (SELECT id 
+					  FROM rms_logs 
+					  WHERE room_id=roomid AND e_status IS NULL
+					  ORDER BY id DESC 
+					  LIMIT 1);
+					  
+	SET convertdate = (SELECT CONVERT(previous_datetime, DATETIME));
+	
+	-- If Log Count 0 Insert Data Logs, Else Update Data Logs				  
+	IF logcount = 0 THEN
+	
+		INSERT INTO rms_logs 
+		(room_id,
+		p_status,
+		p_dateTime,
+		s_status,
+		s_dateTime,
+		created_at,
+		s_emp_id,
+		s_from
+		)
+		VALUES
+		(roomid,
+		previous_status,
+		convertdate,
+		current_status,
+		NOW(),
+		NOW(),
+		employee_id,
+		'POS'
+		);
+		
+		SET next_auto_increment = LAST_INSERT_ID();
+		
+	ELSE
+	
+		UPDATE rms_logs 
+		SET e_status=current_status, 
+		e_dateTime=NOW(), 
+		updated_at=NOW(),
+		e_emp_id=employee_id,
+		e_from='POS'
+		WHERE id=logsid;
+		
+		SET next_auto_increment = 0;
+		
+	END IF;
+	-- End Inser/Update Data Logs
+	
+	IF next_auto_increment!=0 THEN
+	
+		-- Special Cases 17 SOA And 31 Dirty With Linen
+		IF current_status='17'  THEN
+			
+			INSERT INTO tbl_room_buddies 
+			(rms_logs_id, emp_id, room_no, `from`, work_id) 
+			VALUES 
+			(next_auto_increment, employee_id, (SELECT room_no FROM tblroom WHERE id=roomid), 'POS', current_status);
+			
+		ELSEIF current_status='31' THEN
+			
+			INSERT INTO tbl_room_buddies 
+			(rms_logs_id, emp_id, room_no, `from`, work_id) 
+			VALUES 
+			(next_auto_increment, employee_id, (SELECT room_no FROM tblroom WHERE id=roomid), 'POS', current_status);
+		
+		END IF;
+	
+	END IF;
+
+END $$
+DELIMITER ;
+
+=========================================================================================================================
+
+CREATE TABLE vc_employees (
+	id BIGINT(20) NOT NULL AUTO_INCREMENT,
+	idno VARCHAR(20) NOT NULL,
+	username VARCHAR(10) NOT NULL,
+	password VARCHAR(60) NOT NULL,
+	passwordhash VARCHAR(100) NOT NULL DEFAULT '0',
+	lname VARCHAR(20) NOT NULL,
+	fname VARCHAR(20) NOT NULL,
+	mname VARCHAR(20) NOT NULL,
+	picture VARCHAR(50) NOT NULL DEFAULT 'icon-user-default.png',
+	locale VARCHAR(20) NOT NULL,
+	position VARCHAR(50) NOT NULL,
+	email VARCHAR(50) NOT NULL DEFAULT '',
+	birthday DATE NOT NULL,
+	status VARCHAR(10) NOT NULL DEFAULT 'Active',
+	acmsystem VARCHAR(10) NOT NULL DEFAULT 'NA',
+	gilas INT(11) NOT NULL DEFAULT '0',
+	vclife_admin INT(11) NOT NULL DEFAULT '0',
+	signatory_logo VARCHAR(255) NULL DEFAULT 'no_signatory_logo.png',
+	remember_token VARCHAR(100) NOT NULL,
+	updated_at DATETIME NULL DEFAULT NULL,
+	role_id INT(11) NULL DEFAULT NULL,
+	department_id INT(11) NULL DEFAULT NULL,
+	datecreated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	createdby VARCHAR(5) NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE INDEX username (username)
+)
+ENGINE=FEDERATED
+DEFAULT CHARSET=latin1
+CONNECTION='mysql://sa:1tdAutop1l0t@192.168.1.23/vcitd/vc_employees';
+
+CREATE TABLE `vchi_tbl_cashierreconcile` (
+  `ID` bigint(20) NOT NULL AUTO_INCREMENT,
+  `ProcessBy` varchar(200) DEFAULT '',
+  `Department` varchar(200) DEFAULT '',
+  `DatePro` date DEFAULT NULL,
+  `TimePro` varchar(200) DEFAULT '0',
+  `TotalAmount` decimal(30,2) DEFAULT '0.00',
+  `P1000` decimal(30,2) DEFAULT '0.00',
+  `P500` decimal(30,2) DEFAULT '0.00',
+  `P200` decimal(30,2) DEFAULT '0.00',
+  `P100` decimal(30,2) DEFAULT '0.00',
+  `P50` decimal(30,2) DEFAULT '0.00',
+  `P20` decimal(30,2) DEFAULT '0.00',
+  `P10` decimal(30,2) DEFAULT '0.00',
+  `P5` decimal(30,2) DEFAULT '0.00',
+  `P1` decimal(30,2) DEFAULT '0.00',
+  `P25C` decimal(30,2) DEFAULT '0.00',
+  `P10C` decimal(30,2) DEFAULT '0.00',
+  `P5C` decimal(30,2) DEFAULT '0.00',
+  `ORFrom1` varchar(200) DEFAULT '',
+  `ORTo1` varchar(200) DEFAULT '',
+  `ORFrom2` varchar(200) DEFAULT '',
+  `ORTo2` varchar(200) DEFAULT '',
+  `CashOut` decimal(30,2) DEFAULT '0.00',
+  `CashFloat` decimal(30,2) DEFAULT '0.00',
+  `TotalSales` decimal(30,2) DEFAULT '0.00',
+  `Remarks` text,
+  `DatePro2` date DEFAULT NULL,
+  `VehicleCount` int(10) DEFAULT '0',
+  `ShiftNo` varchar(10) DEFAULT '',
+  `MachineNo` varchar(50) DEFAULT '',
+  `Cashier` varchar(200) DEFAULT '',
+  `admin` varchar(100) DEFAULT '',
+  `compDate` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `orgMachineNo` varchar(100) DEFAULT '',
+  `P1C` decimal(30,2) DEFAULT '0.00',
+  `DollarCount` decimal(30,2) DEFAULT '0.00',
+  `DollarCon` decimal(30,2) DEFAULT '0.00',
+  `DollarCur` decimal(30,2) DEFAULT '0.00',
+  `OverShort` decimal(30,2) DEFAULT '0.00',
+  `SKAmount` decimal(30,2) DEFAULT '0.00',
+  PRIMARY KEY (`ID`),
+  KEY `idxID` (`ID`),
+  KEY `idxDatePro` (`DatePro`),
+  KEY `idxShiftNo` (`ShiftNo`)
+)
+ENGINE=FEDERATED
+DEFAULT CHARSET=latin1
+CONNECTION='mysql://sa:1tdAutop1l0t@192.168.1.23/hms/tblcashierreconcile';

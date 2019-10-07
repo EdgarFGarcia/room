@@ -1,0 +1,94 @@
+DELIMITER $$
+CREATE PROCEDURE RMSLogs(IN roomid VARCHAR(50), IN previous_status VARCHAR(50), IN previous_datetime TEXT, IN current_status VARCHAR(50))
+BEGIN
+
+	-- Variables
+	DECLARE logcount INT;
+	DECLARE logsid INT;
+	DECLARE next_auto_increment INT;
+	DECLARE convertdate DATETIME;
+	DECLARE employee_id VARCHAR(50);
+	DECLARE special_logs_id INT;
+	
+	-- Get Count
+	SET logcount = (SELECT COUNT(*) FROM rms_logs WHERE room_id=roomid AND e_status IS NULL);
+	
+	-- Get Log ID
+	SET logsid = (SELECT id 
+					  FROM rms_logs 
+					  WHERE room_id=roomid AND e_status IS NULL
+					  ORDER BY id DESC 
+					  LIMIT 1);
+					  
+	SET convertdate = (SELECT CONVERT(previous_datetime, DATETIME));
+	
+	-- If Log Count 0 Insert Data Logs, Else Update Data Logs				  
+	IF logcount = 0 THEN
+	
+		INSERT INTO rms_logs 
+		(room_id,
+		p_status,
+		p_dateTime,
+		s_status,
+		s_dateTime,
+		created_at
+		)
+		VALUES
+		(roomid,
+		previous_status,
+		convertdate,
+		current_status,
+		NOW(),
+		NOW()
+		);
+		
+		SET next_auto_increment = LAST_INSERT_ID();
+		
+	ELSE
+	
+		UPDATE rms_logs 
+		SET e_status=current_status, 
+		e_dateTime=NOW(), 
+		updated_at=NOW()
+		WHERE id=logsid;
+		
+		SET next_auto_increment = 0;
+		
+	END IF;
+	-- End Inser/Update Data Logs
+	
+	IF next_auto_increment!=0 THEN
+	
+			-- Special Cases 17 SOA And 31 Dirty With Linen
+		IF current_status='17'  THEN
+			
+			SELECT next_auto_increment;
+			
+			SET employee_id = (SELECT VCAT_Emp
+								 FROM vc_audit_trail WHERE VCAT_Room=(SELECT room_no FROM tblroom WHERE id=roomid)
+								 ORDER BY VCAT_ID DESC LIMIT 1);
+								 
+			
+			INSERT INTO tbl_room_buddies 
+			(rms_logs_id, emp_id, room_no, `from`, work_id) 
+			VALUES 
+			(next_auto_increment, employee_id, (SELECT room_no FROM tblroom WHERE id=roomid), 'POS', current_status);
+			
+		ELSEIF current_status='31' THEN
+		
+			SET employee_id = (SELECT VCAT_Emp
+								 FROM vc_audit_trail WHERE VCAT_Room=(SELECT room_no FROM tblroom WHERE id=roomid)
+								 ORDER BY VCAT_ID DESC LIMIT 1);
+								 
+			
+			INSERT INTO tbl_room_buddies 
+			(rms_logs_id, emp_id, room_no, `from`, work_id) 
+			VALUES 
+			(next_auto_increment, employee_id, (SELECT room_no FROM tblroom WHERE id=roomid), 'POS', current_status);
+		
+		END IF;
+	
+	END IF;
+
+END $$
+DELIMITER ;

@@ -1,0 +1,8 @@
+DELIMITER $$
+CREATE PROCEDURE POSChangeStatus(IN roomid VARCHAR(50), IN previous_status VARCHAR(50), IN current_status VARCHAR(50))
+BEGIN
+
+	UPDATE tblroom SET room_status_id=current_status, from_room_status_id=previous_status WHERE id=roomid;
+
+END $$
+DELIMITER ;
